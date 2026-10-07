@@ -254,10 +254,20 @@ button.link{border:0;background:none;padding:4px 2px;font-size:.8rem;font-weight
 .addrow{display:grid;grid-template-columns:1fr 5.5em auto;gap:6px;margin-top:4px}
 .addrow button{padding:8px 12px;font-size:.9rem}
 .opts li.add{color:var(--indigo);font-weight:700}
+.upd{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel);border:1px solid var(--indigo);border-radius:12px;padding:8px 10px;margin-bottom:8px;font-size:.9rem;font-weight:700}
+.upd[hidden]{display:none}
+.upd button{padding:8px 14px;font-size:.9rem}
+.ver{text-align:center;font-size:.7rem;color:var(--sub);margin-top:16px}
+.log li{grid-template-columns:5.4em 3.6em 1fr 1.6em 4.2em;gap:6px}
+.log li>span:first-child{white-space:nowrap}
+.log li.hitrow .hv{grid-column:3 / 6}
+.log .av{text-align:right;font-size:.8rem;color:var(--sub);font-variant-numeric:tabular-nums;white-space:nowrap}
+.log .av::before{content:"平均";font-size:.62rem;margin-right:2px}
 </style>
 </head>
 <body>
 <main>
+  <div class="upd" id="upd" hidden><span>新しい版があります</span><button class="main" id="updBtn">更新する</button></div>
   <div class="tabs" role="tablist">
     <button role="tab" id="tabCounter" class="on" aria-selected="true">カウンター</button>
     <button role="tab" id="tabData" aria-selected="false">データ</button>
@@ -341,6 +351,7 @@ button.link{border:0;background:none;padding:4px 2px;font-size:.8rem;font-weight
     <div id="dataBody"></div>
     <p class="note" id="dataNote"></p>
     <p class="note" id="storeNote"></p>
+    <p class="ver" id="verNote"></p>
 
     <details class="grp mylist" id="backup">
       <summary><div class="gh"><span class="t">バックアップ</span></div>
@@ -378,6 +389,8 @@ button.link{border:0;background:none;padding:4px 2px;font-size:.8rem;font-weight
 </div>
 
 <script>
+// アプリの版番号（更新のたびに変える）
+const APP_VERSION="2026-10-08b";
 // よく使う店舗名・機種（入力欄のドロップダウン候補）
 const SHOPS=["ABC刈谷店","プレイランドキャッスル高浜店","オーギヤタウン半田店","コスモジャパン大府店"];
 const SHOP_ALIAS={"ABC刈谷":"ABC刈谷店","キャッスル高浜":"プレイランドキャッスル高浜店","オーギヤ半田":"オーギヤタウン半田店","コスモ大府":"コスモジャパン大府店"};
@@ -429,11 +442,11 @@ try{
 const saveLocal=()=>{try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}};
 
 function calc(ev=s.ev){
-  let cur=null,k=0,starts=0;const rows=[],diffs=[];
+  let cur=null,k=0,starts=0,sum=0;const rows=[],diffs=[];
   for(const e of ev){
     if(e.t==="start"){cur=e.v;starts++;rows.push({t:"start",v:e.v,first:starts===1});}
     else if(e.t==="hit"){rows.push({t:"hit",kind:e.kind,balls:e.balls});}
-    else{const d=e.v-cur;cur=e.v;k++;diffs.push(d);rows.push({t:"read",k,v:e.v,d});}
+    else{const d=e.v-cur;cur=e.v;k++;diffs.push(d);sum+=d;rows.push({t:"read",k,v:e.v,d,avg:sum/k});}
   }
   const total=diffs.reduce((a,b)=>a+b,0);
   const hits=ev.filter(e=>e.t==="hit");
@@ -489,7 +502,7 @@ function render(){
       if(r.t==="hit")return `<li class="hitrow k-${r.kind}"><span>当たり</span><span class="c kind">${KIND[r.kind]||r.kind}</span><span class="hv">${r.balls!=null?"出玉 "+r.balls.toLocaleString()+"玉":"出玉 未入力"}</span></li>`;
       if(r.t==="start")return `<li class="${r.first?"start":"rs"}"><span>${r.first?"スタート":"再スタート"}</span><span class="c">${r.v}回</span></li>`;
       const ok=b>0&&r.d>=b;
-      return `<li><span>${(r.k*1000).toLocaleString()}円</span><span class="c">${r.v}回</span><span class="bar"><i class="${ok?"ok":""}" style="width:${Math.max(0,Math.min(100,r.d/max*100))}%"></i></span><span class="n">${r.d}</span></li>`;
+      return `<li><span>${(r.k*1000).toLocaleString()}円</span><span class="c">${r.v}回</span><span class="bar"><i class="${ok?"ok":""}" style="width:${Math.max(0,Math.min(100,r.d/max*100))}%"></i></span><span class="n">${r.d}</span><span class="av">${r.avg.toFixed(1)}</span></li>`;
     }).reverse().join("");
   }
   const m=s.meta;
@@ -842,6 +855,22 @@ $("importFile").addEventListener("change",async e=>{
     await refreshSaved();$("bkMsg").textContent=`${d.records.length}件を読み込みました`;
   }catch(err){$("bkMsg").textContent="このファイルは読み込めませんでした";}
 });
+
+/* ---- 新しい版の確認（ホーム画面から開いたときも最新にする） ---- */
+let newVer=null;
+async function checkUpdate(){
+  if(location.protocol!=="https:"&&location.protocol!=="http:")return;
+  try{
+    const u=location.origin+location.pathname+"?check="+Date.now();
+    const t=await (await fetch(u,{cache:"no-store"})).text();
+    const m=t.match(/APP_VERSION="([^"]+)"/);
+    if(m&&m[1]!==APP_VERSION){newVer=m[1];$("upd").hidden=false;}
+  }catch(e){}
+}
+$("updBtn").addEventListener("click",()=>{location.replace(location.origin+location.pathname+"?v="+encodeURIComponent(newVer||Date.now()));});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")checkUpdate();});
+$("verNote").textContent="バージョン "+APP_VERSION;
+checkUpdate();
 
 render();
 initStore();
